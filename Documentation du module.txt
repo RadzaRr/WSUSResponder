@@ -1,0 +1,159 @@
+Module WSUSResponder (Réponse CVE-2025-59287)
+
+Version: 1.0.1
+
+Ce module PowerShell fournit un ensemble d'outils pour la réponse à l'incident de sécurité CVE-2025-59287, une vulnérabilité critique d'exécution de code à distance (RCE) dans le service Windows Server Update Service (WSUS).
+
+Le module permet de :
+
+Scanner l'ensemble d'un parc Active Directory (ou une liste de serveurs) pour identifier les serveurs WSUS.
+
+Vérifier si ces serveurs ont reçu les correctifs de sécurité "Out-of-Band" (OOB).
+
+Appliquer un contournement (workaround) en créant des règles de pare-feu locales pour bloquer les ports vulnérables (8530, 8531).
+
+Supprimer ce contournement une fois les serveurs patchés.
+
+Exporter des rapports d'audit complets (XLSX, CSV, JSON).
+
+Installation
+
+1. Prérequis
+
+Le module nécessite les dépendances suivantes sur la machine d'administration :
+
+Module ActiveDirectory : Pour l'utilisation de Get-WSUSCveStatus -FromAD.
+
+Installation (Client Win10/11) : Add-WindowsCapability -Online -Name 'Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0'
+
+Installation (Serveur) : Install-WindowsFeature RSAT-AD-PowerShell
+
+Module ImportExcel : Pour la génération des rapports .xlsx.
+
+Installation : Install-Module ImportExcel -Scope CurrentUser
+
+Les serveurs cibles n'ont besoin que de PowerShell 5.1+ et de WinRM activé (Enable-PSRemoting).
+
+2. Installation du module
+
+Créez un dossier nommé WSUSResponder dans l'un de vos répertoires de modules PowerShell (par exemple : $env:USERPROFILE\Documents\WindowsPowerShell\Modules\WSUSResponder).
+
+Copiez les fichiers WSUSResponder.psm1 et WSUSResponder.psd1 dans ce dossier.
+
+Ouvrez une nouvelle console PowerShell et vérifiez l'importation :
+
+Import-Module WSUSResponder
+Get-Command -Module WSUSResponder
+
+
+Fonctions Exportées
+
+Get-WSUSCveStatus
+
+Scanne les cibles et retourne un rapport d'état.
+
+Syntaxe
+
+# Scanner via l'Active Directory
+Get-WSUSCveStatus -FromAD [-UsePS7Parallel] [-Credential <pscredential>] [-ThrottleLimit <int>] [-OperationTimeoutSec <int>]
+
+# Scanner une liste de serveurs (accepte le pipeline)
+Get-WSUSCveStatus -ComputerName <string[]> [-Credential <pscredential>] [-ThrottleLimit <int>] [-OperationTimeoutSec <int>]
+
+
+Export-WSUSCveReport
+
+Prend les résultats de Get-WSUSCveStatus et génère les fichiers de rapport (XLSX, CSV, JSON, TXT) ainsi qu'un résumé console.
+
+Syntaxe
+
+... | Export-WSUSCveReport -ExportPath <string> [-NoTranscript]
+
+
+Set-WSUSCveWorkaround
+
+Applique les règles de pare-feu (blocage entrant des ports 8530/8531) sur les cibles.
+
+Syntaxe
+
+# Appliquer via le pipeline
+... | Set-WSUSCveWorkaround [-PassThru]
+
+# Appliquer sur une liste de noms
+Set-WSUSCveWorkaround -ComputerName <string[]> [-PassThru]
+
+
+Remove-WSUSCveWorkaround
+
+Supprime les règles de pare-feu créées par Set-WSUSCveWorkaround.
+
+Syntaxe
+
+# Supprimer via le pipeline
+... | Remove-WSUSCveWorkaround [-PassThru]
+
+# Supprimer sur une liste de noms
+Remove-WSUSCveWorkaround -ComputerName <string[]> [-PassThru]
+
+
+Exemples de Workflows
+
+Le script Use-WSUSResponder.ps1 (fourni) contient ces exemples.
+
+Workflow 1: Audit Seul (Scan et Rapport)
+
+Objectif : Savoir combien de serveurs sont vulnérables.
+
+# Définir le chemin de sortie
+$ReportPath = "C:\Temp\WSUS_Audit_$(Get-Date -Format yyyyMMdd)"
+
+# Scanner l'AD et exporter directement les résultats
+Get-WSUSCveStatus -FromAD -UsePS7Parallel | Export-WSUSCveReport -ExportPath $ReportPath
+
+
+Workflow 2: Réponse à Incident (Scan et Mitigation)
+
+Objectif : Trouver les serveurs vulnérables et appliquer le workaround immédiatement.
+
+$ReportPath = "C:\Temp\WSUS_Mitigation_$(Get-Date -Format yyyyMMdd)"
+
+# 1. Scanner et stocker les résultats
+$scanResults = Get-WSUSCveStatus -FromAD -UsePS7Parallel
+
+# 2. Filtrer les serveurs vulnérables et joignables
+$vulnerable = $scanResults | Where-Object { $_.IsWSUS -and -not $_.IsPatched -and $_.Reachable }
+
+# 3. Appliquer le workaround
+if ($vulnerable) {
+   Write-Host "Application du workaround sur $($vulnerable.Count) hôte(s)..." -ForegroundColor Yellow
+   # Le pipeline met à jour les objets $vulnerable grâce au PassThru implicite
+   $vulnerable | Set-WSUSCveWorkaround -PassThru | Out-Null
+}
+
+# 4. Exporter le rapport final (les objets $scanResults sont mis à jour par référence)
+$scanResults | Export-WSUSCveReport -ExportPath $ReportPath
+
+
+Workflow 3: Rollback (Après Patching)
+
+Objectif : Supprimer le workaround des serveurs qui ont été patchés.
+
+# Supposons que 'srv-wsus-01' et 'srv-wsus-02' sont maintenant patchés
+$serversPatches = 'srv-wsus-01', 'srv-wsus-02'
+
+Remove-WSUSCveWorkaround -ComputerName $serversPatches
+
+
+(Optionnel) Signature du Module
+
+Pour une utilisation en production dans un environnement avec une politique d'exécution AllSigned, vous devez signer les fichiers .psm1 et .psd1.
+
+# 1. (Une seule fois) Créer un certificat de signature de code auto-signé
+New-SelfSignedCertificate -Type CodeSigning -Subject "CN=MonOrganisation IT Ops" -CertStoreLocation Cert:\CurrentUser\My
+
+# 2. Récupérer le certificat
+$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
+
+# 3. Signer les fichiers du module
+Set-AuthenticodeSignature -FilePath "C:\...Modules\WSUSResponder\WSUSResponder.psm1" -Certificate $cert
+Set-AuthenticodeSignature -FilePath "C:\...Modules\WSUSResponder\WSUSResponder.psd1" -Certificate $cert
