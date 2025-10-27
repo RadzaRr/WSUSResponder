@@ -303,9 +303,11 @@ function Get-WSUSCveStatus {
       # Ajouter les résultats de la sonde au rapport
       $probeResults | ForEach-Object { $Report.Add($_) }
 
+      # --- CORRECTION ENCODAGE ---
+      # Remplacement de 'é' par 'e' pour éviter les erreurs de "jeton inattendu"
       # Gérer les hôtes qui ont réussi Test-WSMan mais échoué Invoke-Command (ex: timeout, erreur d'exécution)
-      $hostsScannés = $probeResults.PSComputerName
-      $hostsEchoues = $reachableTargets | Where-Object { $_ -notin $hostsScannés }
+      $hostsScannes = $probeResults.PSComputerName
+      $hostsEchoues = $reachableTargets | Where-Object { $_ -notin $hostsScannes }
 
       foreach ($c in $hostsEchoues) {
           $Report.Add([PSCustomObject]@{
@@ -322,6 +324,7 @@ function Get-WSUSCveStatus {
               Error           = "Test-WSMan OK, mais Invoke-Command a échoué (erreur d'exécution ou timeout de $OperationTimeoutSec sec dépassé)."
           })
       }
+      # --- FIN CORRECTION ---
     }
     
     # Matérialiser, trier et typer la sortie
