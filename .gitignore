@@ -1,0 +1,15 @@
+# PowerShell
+*.ps1~
+*.psd1~
+*.psm1~
+*.log
+*.zip
+*.bak
+*.tmp
+*.xlsx
+*.csv
+*.json
+
+# VS Code
+.vscode/
+.history/
